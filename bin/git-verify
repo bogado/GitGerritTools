@@ -1,0 +1,7 @@
+#!/bin/bash
+
+local upstream=${1:-'@{upstream}'}
+(
+    cd ./$(git rev-parse --)
+    git rebase --exec './gradlew clean build && ssh -p 29418 vbogado@gerrit.cyngn.com gerrit review --verified +1 $(git rev-list -1 HEAD)' $upstream -i
+)
