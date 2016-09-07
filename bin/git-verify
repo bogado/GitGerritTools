@@ -1,7 +1,75 @@
 #!/bin/bash
 
-local upstream=${1:-'@{upstream}'}
+branch="$(git symbolic-ref --short HEAD)"
+upstream="${1:-"$(git rev-parse @{upstream})"}"
+
+while [[ "$1" != "--" ]]; do
+    if ! shift; then
+        break;
+    fi
+done
+
+if [[ "$#" > 0 ]]; then
+    shift
+    execute=( "$@" )
+    function on_success() {
+        echo "${execute[@]}"
+        eval "${execute[@]}"
+    }
+else
+    remote=$(git for-each-ref "refs/heads/$branch" --format="%(upstream:short)" | cut -d / -f 1)
+
+    if [[ "$remote" == "" ]]; then
+        echo "Need an upstream commit and \"$branch\" don't have an upstream setup" > /dev/stderr;
+        exit;
+    fi
+
+    url="$(git remote get-url --push "$remote")"
+    dest=$(echo $url | sed -e 's,.*://\([^:/]\+\).*,\1,')
+    port=$(echo $url | sed -e 's,.*://[^/:]\+:\([0-9]\+\).*,\1,')
+
+    function on_success() {
+        ssh -p $port $dest gerrit review --verified +1 $(git rev-list -1 HEAD)
+    }
+fi
+
+function msg() {
+    echo
+    echo ================================================================================
+    echo "$@"
+    echo ================================================================================
+    echo
+}
+
+function build_command() {
+    if ./gradlew clean build; then
+        return 0;
+    else
+        return 1;
+    fi
+}
+
+function revert() {
+    msg finishing verify
+    git checkout "$branch"
+}
+trap revert EXIT
+
+git update-ref -d refs/verify/broken
+
 (
-    cd ./$(git rev-parse --)
-    git rebase --exec './gradlew clean build && ssh -p 29418 vbogado@gerrit.cyngn.com gerrit review --verified +1 $(git rev-list -1 HEAD)' $upstream -i
+    cd $(git rev-parse --show-toplevel)
+    for commit in $(git rev-list --reverse $upstream..$branch); do
+        git checkout --detach $commit > /dev/null
+        commit='"'$(git log -1 --pretty=format:%s | cut -b "1-70" )'"'
+        msg "processing $commit"
+        if build_command; then
+            msg "success $commit"
+            on_success
+        else
+            msg "fail $commit"
+            git update-ref refs/verify/broken HEAD
+            break;
+        fi
+    done
 )
