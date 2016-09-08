@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+for ref in $(git for-each-ref refs/gerrit/ --format '%(refname)'); do
+    git update-ref -d $ref
+done
+

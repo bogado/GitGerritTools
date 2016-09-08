@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+. "$(dirname "$BASH_SOURCE")/../lib/helper.bash"
+
+gerrit $(upstream_remote) "$@"
