@@ -2,14 +2,6 @@
 
 . "$(dirname "$BASH_SOURCE")/../lib/helper.bash"
 
-git-gerrit-clean-tags
-
-function create_tags() {
-    ref=$(git rev-list -1 --abbrev-commit HEAD)
-    for i in $(gerrit_approvals commit:${ref}); do
-        tag_name=${i/:/_}
-        git update-ref refs/gerrit/${ref}_${tag_name} ${ref}
-    done
-}
-
-git-foreach --exec create_tags --on_success msg "done" --on-error msg "failled"
+for ref in $(getrevlist "$@"); do
+    git notes --ref gerrit add -f -m "$(gerrit_approvals commit:${ref})" $ref
+done

@@ -1,10 +1,13 @@
 #!/bin/bash
 
 branch="$(git symbolic-ref --short HEAD)"
-upstream="${1:-"$(git rev-parse @{upstream})"}"
+declare -a refargs
 
 while [[ "$1" != "--" ]]; do
-    if ! shift; then
+    arg="$1"
+    if shift; then
+        refall+=($arg)
+    else
         break;
     fi
 done
@@ -17,19 +20,23 @@ if [[ "$#" > 0 ]]; then
         eval "${execute[@]}"
     }
 else
-    remote=$(git for-each-ref "refs/heads/$branch" --format="%(upstream:short)" | cut -d / -f 1)
+    if [[ "${#refall[@]}" ==  0 ]]; then
+        remote=$(git for-each-ref "refs/heads/$branch" --format="%(upstream:short)" | cut -d / -f 1)
 
-    if [[ "$remote" == "" ]]; then
-        echo "Need an upstream commit and \"$branch\" don't have an upstream setup" > /dev/stderr;
-        exit;
+        if [[ "$remote" == "" ]]; then
+            echo "usage: $0 [ rev-list arguments ]  [ -- verification command ]"
+            echo "\t if no rev-list argument is provided the verification will use the updstream configuration for your current git repository"
+            echo
+            echo "Need an upstream commit and \"$branch\" don't have an upstream setup." > /dev/stderr;
+            exit;
+        fi
+
+        refall=( --reverse @{upstream}...$branch )
     fi
 
-    url="$(git remote get-url --push "$remote")"
-    dest=$(echo $url | sed -e 's,.*://\([^:/]\+\).*,\1,')
-    port=$(echo $url | sed -e 's,.*://[^/:]\+:\([0-9]\+\).*,\1,')
-
     function on_success() {
-        ssh -p $port $dest gerrit review --verified +1 $(git rev-list -1 HEAD)
+        gerrit review --verified +1 $(git rev-list -1 HEAD)
+        msg verified
     }
 fi
 
@@ -49,27 +56,9 @@ function build_command() {
     fi
 }
 
-function revert() {
-    msg finishing verify
-    git checkout "$branch"
+function on_error() {
+    msg "fail $commit"
+    git update-ref refs/verify/broken HEAD
 }
-trap revert EXIT
 
-git update-ref -d refs/verify/broken
-
-(
-    cd $(git rev-parse --show-toplevel)
-    for commit in $(git rev-list --reverse $upstream..$branch); do
-        git checkout --detach $commit > /dev/null
-        commit='"'$(git log -1 --pretty=format:%s | cut -b "1-70" )'"'
-        msg "processing $commit"
-        if build_command; then
-            msg "success $commit"
-            on_success
-        else
-            msg "fail $commit"
-            git update-ref refs/verify/broken HEAD
-            break;
-        fi
-    done
-)
+. git-foreach "${refall[@]}" --exec build_command --on-success on_success --on-error on_error

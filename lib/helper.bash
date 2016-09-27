@@ -26,15 +26,23 @@ function gerrit() {
     ssh -p ${remote_url[3]} ${remote_url[1]}@${remote_url[2]} gerrit "$@"
 }
 
+function getrevlist() {
+    if [[ "$@" == "" ]]; then
+        git rev-list --reverse "@{upstream}..HEAD"
+    else
+        git rev-list "$@"
+    fi
+}
+
 function git-foreach() {
-    local branch="$(git symbolic-ref --short HEAD)"
-    local upstream="$(git rev-parse '@{upstream}')"
 
     declare -a execute__
     declare -a on_success__
     declare -a on_error__
+    declare -a revlist__
 
-    local current="upstream"
+    local current="revlist"
+    local help="no"
     while [[ $# > 0 ]]; do
         local arg="$1"
         shift
@@ -49,6 +57,9 @@ function git-foreach() {
             --on-error)
                 current="error"
                 continue;;
+            -h | --help | -\?)
+                help="yes"
+                continue;;
         esac
 
         case "$current" in
@@ -58,32 +69,52 @@ function git-foreach() {
                 on_success__+=("$arg");;
             error)
                 on_error__+=("$arg");;
-            upstream)
-                upstream="$arg"
-                current="";;
+            revlist)
+                revlist__+=("$arg");;
         esac
     done
+    if [[ "$help" == "yes" || ${#execute__[@]} == 0 ]]; then
+        cat <<EOF
+usage: git-foreach [ rev-list parameters ] --exec <command to execute> --on-success <execute on success> --on-error <execute on error>
+
+This command will run the "exec" command on the top level of the git work
+directory for each commit returned by git-rev-list with the provided parameters.
+
+Once the "exec" command is finished git-foreach will either execute the
+"on-success" or "on-error" command depending on the exit status of the "exec"
+command.  The processing will stop at the first error detected.
+
+If no rev-list parameters are provided this will default to list all non-merged commits from
+the current branch in chronological ordering. (git rev-list ${upstream}..HEAD)
+
+EOF
+        return 1
+    fi
 
     (
+        branch="$(git symbolic-ref --short HEAD)"
+
         function cleanup() {
             git checkout $branch
         }
+
         trap cleanup EXIT
 
         cd $(git rev-parse --show-toplevel)
-        for commit in $(git rev-list --reverse $upstream..$branch); do
+        for commit in $(getrevlist "${revlist__[@]}"); do
             git checkout --detach $commit > /dev/null
-            commit='"'$(git log -1 --pretty=format:%s | cut -b "1-70" )'"'
-            msg "processing $commit"
-            if "${execute__[@]}"; then
-                "${on_success__[@]}";
+            commitMsg='"'$(git log -1 --pretty=format:%s | cut -b "1-70" )'"'
+            msg "processing $commitMsg"
+            if eval "${execute__[@]}"; then
+                msg $commitMsg Success
+                eval "${on_success__[@]}";
             else
-                "${on_error__[@]}";
+                msg $commitMsg Failled
+                eval "${on_error__[@]}";
                 break;
             fi
         done
     )
-
 }
 
 function msg() {
@@ -95,5 +126,5 @@ function msg() {
 }
 
 function gerrit_approvals() {
-    gerrit query --format=json --all-approvals "$@" | head -n 1 | jq -r '.patchSets[-1].approvals[] | .type + ":" + .value'
+    gerrit query --format=json --all-approvals "$@" | head -n 1 | jq -r '.patchSets[-1].approvals[]? | .by.username + " " + .type? + ":" + .value?'
 }
