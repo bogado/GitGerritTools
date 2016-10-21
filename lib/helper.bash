@@ -126,5 +126,9 @@ function msg() {
 }
 
 function gerrit_approvals() {
-    gerrit query --format=json --all-approvals "$@" | head -n 1 | jq -r '.patchSets[-1].approvals[]? | .by.username + " " + .type? + ":" + .value?'
+    gerrit query --format=json --all-approvals --all-reviewers "$@" |
+        head -n 1 |
+        jq -r '( if .url then (.url + " by " + (.owner | .name + " <" + .email + ">") ) else "not present" end ),
+        ( .allReviewers[]? | "Reviewer: " + .name + " <" + .email + ">" ),
+        ( .patchSets[-1].approvals[]? | .type? + " " + .value? + ": " + .by.name )'
 }
