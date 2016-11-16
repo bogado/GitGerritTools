@@ -3,6 +3,8 @@
 branch="$(git symbolic-ref --short HEAD)"
 declare -a refargs
 
+git update-ref -d refs/verify/broken
+
 while [[ "$1" != "--" ]]; do
     arg="$1"
     if shift; then
@@ -49,6 +51,15 @@ function msg() {
 }
 
 function build_command() {
+    git gerrit-tag ..HEAD
+    local NOTES="$(git notes --ref gerrit show HEAD | grep Verified)"
+    if [[ "${NOTES}"  == *"Verified 1"* ]]; then
+        echo "* Skipping already verifyed commit."
+        echo
+        echo ${NOTES}
+        return 0;
+    fi
+
     if ./gradlew clean build; then
         return 0;
     else
