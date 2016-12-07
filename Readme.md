@@ -29,6 +29,9 @@ Code-Review 2: Reviewer
 SUBM 1: Author
 Verified 1: Author
 ```
+
+This command and all the commands that depend on it require (`jq`)[https://stedolan.github.io/jq/] to be installed on the current path.
+
 #### git gerrit-tags
 
 Add notes to all the commits in the range, passed in by using `git rev-list` arguments, with the approvals, as returned by gerrit-appovals, to the commits. This allows you to see all the approvals from commits while off line or without a round trip to the service.
